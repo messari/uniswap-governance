@@ -1,6 +1,6 @@
 specVersion: 0.0.2
-repository: https://github.com/diranl/uniswap-governance
-description: Uniswap Governance is governed over GovernorAlpha - a set of proposals and votes. This subgraph aggregates the proposals in an easy to consume way.
+repository: https://github.com/messari/uniswap-governance
+description: Uniswap DAO is governed over GovernorAlpha - a set of proposals and votes. This subgraph aggregates the proposals in an easy to consume way.
 schema:
   file: ./schema.graphql
 dataSources:
