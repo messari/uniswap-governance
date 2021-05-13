@@ -3,21 +3,15 @@ import {
   Delegate,
   Proposal,
   Governance,
-  Vote
+  Vote,
 } from "../../generated/schema";
-import {
-  Address,
-  EthereumEvent,
-  BigInt,
-  Bytes,
-  log
-} from "@graphprotocol/graph-ts";
+import { Address, BigInt, Bytes, log } from "@graphprotocol/graph-ts";
 import { DEFAULT_DECIMALS, toDecimal } from "./decimals";
 import {
   ZERO_ADDRESS,
   BIGINT_ZERO,
   BIGINT_ONE,
-  BIGDECIMAL_ZERO
+  BIGDECIMAL_ZERO,
 } from "./constants";
 
 export function getOrCreateTokenHolder(
