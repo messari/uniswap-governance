@@ -1,4 +1,6 @@
 specVersion: 0.0.2
+repository: https://github.com/diranl/uniswap-governance
+description: Uniswap Governance is governed over GovernorAlpha - a set of proposals and votes. This subgraph aggregates the proposals in an easy to consume way.
 schema:
   file: ./schema.graphql
 dataSources:
@@ -8,16 +10,17 @@ dataSources:
     source:
       address: "0x5e4be8Bc9637f0EAA1A755019e06A68ce081D58F"
       abi: GovernorAlpha
+      startBlock: 10861678
     mapping:
       kind: ethereum/events
       apiVersion: 0.0.4
       language: wasm/assemblyscript
       entities:
-        - ProposalCanceled
-        - ProposalCreated
-        - ProposalExecuted
-        - ProposalQueued
-        - VoteCast
+        - Delegate
+        - TokenHolder
+        - Proposal
+        - Vote
+        - Governance
       abis:
         - name: GovernorAlpha
           file: ./abis/GovernorAlpha.json
