@@ -1,75 +1,275 @@
-import { BigInt } from "@graphprotocol/graph-ts"
+import { Bytes, log } from "@graphprotocol/graph-ts";
 import {
-  GovernorAlpha,
-  ProposalCanceled,
   ProposalCreated,
-  ProposalExecuted,
+  ProposalCanceled,
   ProposalQueued,
-  VoteCast
-} from "../generated/GovernorAlpha/GovernorAlpha"
-import { ExampleEntity } from "../generated/schema"
+  ProposalExecuted,
+  VoteCast,
+} from "../generated/GovernorAlpha/GovernorAlpha";
+import {
+  DelegateChanged,
+  DelegateVotesChanged,
+  Transfer,
+} from "../generated/UniswapToken/UniswapToken";
+import {
+  getOrCreateTokenHolder,
+  getOrCreateDelegate,
+  getOrCreateProposal,
+  getOrCreateVote,
+  getGovernanceEntity,
+} from "./utils/helpers";
+import {
+  ZERO_ADDRESS,
+  BIGINT_ONE,
+  BIGINT_ZERO,
+  STATUS_ACTIVE,
+  STATUS_QUEUED,
+  STATUS_PENDING,
+  STATUS_EXECUTED,
+  STATUS_CANCELLED,
+} from "./utils/constants";
+import { toDecimal } from "./utils/decimals";
 
-export function handleProposalCanceled(event: ProposalCanceled): void {
-  // Entities can be loaded from the store using a string ID; this ID
-  // needs to be unique across all entities of the same type
-  let entity = ExampleEntity.load(event.transaction.from.toHex())
+// NOTE: copied with minor modifications from
+// https://github.com/protofire/compound-governance-subgraph/blob/master/src/mappings.ts
 
-  // Entities only exist after they have been saved to the store;
-  // `null` checks allow to create entities on demand
-  if (entity == null) {
-    entity = new ExampleEntity(event.transaction.from.toHex())
+// - event: ProposalCreated(uint256,address,address[],uint256[],string[],bytes[],uint256,uint256,string)
+//   handler: handleProposalCreated
 
-    // Entity fields can be set using simple assignments
-    entity.count = BigInt.fromI32(0)
+export function handleProposalCreated(event: ProposalCreated): void {
+  let proposal = getOrCreateProposal(event.params.id.toString());
+  let proposer = getOrCreateDelegate(
+    event.params.proposer.toHexString(),
+    false
+  );
+
+  // checking if the proposer was a delegate already accounted for, if not we should log an error
+  // since it shouldn't be possible for a delegate to propose anything without first being "created"
+  if (proposer == null) {
+    log.error("Delegate {} not found on ProposalCreated. tx_hash: {}", [
+      event.params.proposer.toHexString(),
+      event.transaction.hash.toHexString(),
+    ]);
   }
 
-  // BigInt and BigDecimal math are supported
-  entity.count = entity.count + BigInt.fromI32(1)
+  // Creating it anyway since we will want to account for this event data, even though it should've never happened
+  proposer = getOrCreateDelegate(event.params.proposer.toHexString());
 
-  // Entity fields can be set based on event parameters
-  entity.id = event.params.id
+  proposal.proposer = proposer.id;
+  proposal.targets = event.params.targets as Bytes[];
+  proposal.values = event.params.values;
+  proposal.signatures = event.params.signatures;
+  proposal.calldatas = event.params.calldatas;
+  proposal.startBlock = event.params.startBlock;
+  proposal.endBlock = event.params.endBlock;
+  proposal.description = event.params.description;
+  proposal.status =
+    event.block.number >= proposal.startBlock ? STATUS_ACTIVE : STATUS_PENDING;
 
-  // Entities can be written to the store with `.save()`
-  entity.save()
-
-  // Note: If a handler doesn't require existing field values, it is faster
-  // _not_ to load the entity from the store. Instead, create it fresh with
-  // `new Entity(...)`, set the fields that should be updated and save the
-  // entity back to the store. Fields that were not set or unset remain
-  // unchanged, allowing for partial updates to be applied.
-
-  // It is also possible to access smart contracts from mappings. For
-  // example, the contract that has emitted the event can be connected to
-  // with:
-  //
-  // let contract = Contract.bind(event.address)
-  //
-  // The following functions can then be called on this contract to access
-  // state variables and other data:
-  //
-  // - contract.BALLOT_TYPEHASH(...)
-  // - contract.DOMAIN_TYPEHASH(...)
-  // - contract.getActions(...)
-  // - contract.getReceipt(...)
-  // - contract.latestProposalIds(...)
-  // - contract.name(...)
-  // - contract.proposalCount(...)
-  // - contract.proposalMaxOperations(...)
-  // - contract.proposalThreshold(...)
-  // - contract.proposals(...)
-  // - contract.propose(...)
-  // - contract.quorumVotes(...)
-  // - contract.state(...)
-  // - contract.timelock(...)
-  // - contract.uni(...)
-  // - contract.votingDelay(...)
-  // - contract.votingPeriod(...)
+  proposal.save();
 }
 
-export function handleProposalCreated(event: ProposalCreated): void {}
+// - event: ProposalCanceled(uint256)
+//   handler: handleProposalCanceled
 
-export function handleProposalExecuted(event: ProposalExecuted): void {}
+export function handleProposalCanceled(event: ProposalCanceled): void {
+  let proposal = getOrCreateProposal(event.params.id.toString());
 
-export function handleProposalQueued(event: ProposalQueued): void {}
+  proposal.status = STATUS_CANCELLED;
+  proposal.save();
+}
 
-export function handleVoteCast(event: VoteCast): void {}
+// - event: ProposalQueued(uint256,uint256)
+//   handler: handleProposalQueued
+
+export function handleProposalQueued(event: ProposalQueued): void {
+  let governance = getGovernanceEntity();
+  let proposal = getOrCreateProposal(event.params.id.toString());
+
+  proposal.status = STATUS_QUEUED;
+  proposal.executionETA = event.params.eta;
+  proposal.save();
+
+  governance.proposalsQueued = governance.proposalsQueued.plus(BIGINT_ONE);
+  governance.save();
+}
+
+// - event: ProposalExecuted(uint256)
+//   handler: handleProposalExecuted
+
+export function handleProposalExecuted(event: ProposalExecuted): void {
+  let governance = getGovernanceEntity();
+  let proposal = getOrCreateProposal(event.params.id.toString());
+
+  proposal.status = STATUS_EXECUTED;
+  proposal.executionETA = null;
+  proposal.save();
+
+  governance.proposalsQueued = governance.proposalsQueued.minus(BIGINT_ONE);
+  governance.save();
+}
+
+// - event: VoteCast(address,uint256,bool,uint256)
+//   handler: handleVoteCast
+
+export function handleVoteCast(event: VoteCast): void {
+  let proposal = getOrCreateProposal(event.params.proposalId.toString());
+  let voteId = event.params.voter
+    .toHexString()
+    .concat("-")
+    .concat(event.params.proposalId.toString());
+  let vote = getOrCreateVote(voteId);
+  let voter = getOrCreateDelegate(event.params.voter.toHexString(), false);
+
+  // checking if the voter was a delegate already accounted for, if not we should log an error
+  // since it shouldn't be possible for a delegate to vote without first being "created"
+  if (voter == null) {
+    log.error("Delegate {} not found on VoteCast. tx_hash: {}", [
+      event.params.voter.toHexString(),
+      event.transaction.hash.toHexString(),
+    ]);
+  }
+
+  // Creating it anyway since we will want to account for this event data, even though it should've never happened
+  voter = getOrCreateDelegate(event.params.voter.toHexString());
+
+  vote.proposal = proposal.id;
+  vote.voter = voter.id;
+  vote.votesRaw = event.params.votes;
+  vote.votes = toDecimal(event.params.votes);
+  vote.support = event.params.support;
+
+  vote.save();
+
+  if (proposal.status == STATUS_PENDING) {
+    proposal.status = STATUS_ACTIVE;
+    proposal.save();
+  }
+}
+
+// - event: DelegateChanged(indexed address,indexed address,indexed address)
+//   handler: handleDelegateChanged
+
+export function handleDelegateChanged(event: DelegateChanged): void {
+  let tokenHolder = getOrCreateTokenHolder(
+    event.params.delegator.toHexString()
+  );
+  let previousDelegate = getOrCreateDelegate(
+    event.params.fromDelegate.toHexString()
+  );
+  let newDelegate = getOrCreateDelegate(event.params.toDelegate.toHexString());
+
+  tokenHolder.delegate = newDelegate.id;
+  tokenHolder.save();
+
+  previousDelegate.tokenHoldersRepresentedAmount =
+    previousDelegate.tokenHoldersRepresentedAmount - 1;
+  newDelegate.tokenHoldersRepresentedAmount =
+    newDelegate.tokenHoldersRepresentedAmount + 1;
+  previousDelegate.save();
+  newDelegate.save();
+}
+
+// - event: DelegateVotesChanged(indexed address,uint256,uint256)
+//   handler: handleDelegateVotesChanged
+
+export function handleDelegateVotesChanged(event: DelegateVotesChanged): void {
+  let governance = getGovernanceEntity();
+  let delegate = getOrCreateDelegate(event.params.delegate.toHexString());
+  let votesDifference = event.params.newBalance.minus(
+    event.params.previousBalance
+  );
+
+  delegate.delegatedVotesRaw = event.params.newBalance;
+  delegate.delegatedVotes = toDecimal(event.params.newBalance);
+  delegate.save();
+
+  if (
+    event.params.previousBalance == BIGINT_ZERO &&
+    event.params.newBalance > BIGINT_ZERO
+  ) {
+    governance.currentDelegates = governance.currentDelegates.plus(BIGINT_ONE);
+  }
+  if (event.params.newBalance == BIGINT_ZERO) {
+    governance.currentDelegates = governance.currentDelegates.minus(BIGINT_ONE);
+  }
+  governance.delegatedVotesRaw = governance.delegatedVotesRaw.plus(
+    votesDifference
+  );
+  governance.delegatedVotes = toDecimal(governance.delegatedVotesRaw);
+  governance.save();
+}
+
+// - event: Transfer(indexed address,indexed address,uint256)
+//   handler: handleTransfer
+
+export function handleTransfer(event: Transfer): void {
+  let fromHolder = getOrCreateTokenHolder(event.params.from.toHexString());
+  let toHolder = getOrCreateTokenHolder(event.params.to.toHexString());
+  let governance = getGovernanceEntity();
+
+  // fromHolder
+  if (event.params.from.toHexString() != ZERO_ADDRESS) {
+    let fromHolderPreviousBalance = fromHolder.tokenBalanceRaw;
+    fromHolder.tokenBalanceRaw = fromHolder.tokenBalanceRaw.minus(
+      event.params.amount
+    );
+    fromHolder.tokenBalance = toDecimal(fromHolder.tokenBalanceRaw);
+
+    if (fromHolder.tokenBalanceRaw < BIGINT_ZERO) {
+      log.error("Negative balance on holder {} with balance {}", [
+        fromHolder.id,
+        fromHolder.tokenBalanceRaw.toString(),
+      ]);
+    }
+
+    if (
+      fromHolder.tokenBalanceRaw == BIGINT_ZERO &&
+      fromHolderPreviousBalance > BIGINT_ZERO
+    ) {
+      governance.currentTokenHolders = governance.currentTokenHolders.minus(
+        BIGINT_ONE
+      );
+      governance.save();
+    } else if (
+      fromHolder.tokenBalanceRaw > BIGINT_ZERO &&
+      fromHolderPreviousBalance == BIGINT_ZERO
+    ) {
+      governance.currentTokenHolders = governance.currentTokenHolders.plus(
+        BIGINT_ONE
+      );
+      governance.save();
+    }
+
+    fromHolder.save();
+  }
+
+  // toHolder
+  let toHolderPreviousBalance = toHolder.tokenBalanceRaw;
+  toHolder.tokenBalanceRaw = toHolder.tokenBalanceRaw.plus(event.params.amount);
+  toHolder.tokenBalance = toDecimal(toHolder.tokenBalanceRaw);
+  toHolder.totalTokensHeldRaw = toHolder.totalTokensHeldRaw.plus(
+    event.params.amount
+  );
+  toHolder.totalTokensHeld = toDecimal(toHolder.totalTokensHeldRaw);
+
+  if (
+    toHolder.tokenBalanceRaw == BIGINT_ZERO &&
+    toHolderPreviousBalance > BIGINT_ZERO
+  ) {
+    governance.currentTokenHolders = governance.currentTokenHolders.minus(
+      BIGINT_ONE
+    );
+    governance.save();
+  } else if (
+    toHolder.tokenBalanceRaw > BIGINT_ZERO &&
+    toHolderPreviousBalance == BIGINT_ZERO
+  ) {
+    governance.currentTokenHolders = governance.currentTokenHolders.plus(
+      BIGINT_ONE
+    );
+    governance.save();
+  }
+
+  toHolder.save();
+}
