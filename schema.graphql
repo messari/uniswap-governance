@@ -13,6 +13,8 @@ type TokenHolder @entity {
   "Delegate address of the token holder which will participate in votings. Delegates don't need to hold any tokens and can even be the token holder itself."
   delegate: Delegate
 
+  delegateChangedEvents: [DelegateChangedEvent!] 
+
   "Uniswap Token balance of this address expressed in the smallest unit of the UniswapToken"
   tokenBalanceRaw: BigInt!
 
@@ -24,6 +26,7 @@ type TokenHolder @entity {
 
   "Total amount of Uniswap Token ever held by this address expressed as a BigDecimal normalized value for the Uniswap Token"
   totalTokensHeld: BigDecimal!
+
 }
 
 type Delegate @entity {
@@ -46,6 +49,13 @@ type Delegate @entity {
 
   "Proposals that the delegate has created"
   proposals: [Proposal!]! @derivedFrom(field: "proposer")
+}
+
+type DelegateChangedEvent @entity {
+  id: ID!
+  txHash: String
+  tokenHolder: TokenHolder
+  delegate: Delegate
 }
 
 type Proposal @entity {

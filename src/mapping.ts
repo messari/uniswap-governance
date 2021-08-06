@@ -13,6 +13,7 @@ import {
 } from "../generated/UniswapToken/UniswapToken";
 import {
   getOrCreateTokenHolder,
+  getOrCreateDelegateChangedEvent,
   getOrCreateDelegate,
   getOrCreateProposal,
   getOrCreateVote,
@@ -29,7 +30,14 @@ import {
   STATUS_CANCELLED,
 } from "./utils/constants";
 import { toDecimal } from "./utils/decimals";
-
+import {
+  TokenHolder,
+  Delegate,
+  DelegateChangedEvent,
+  Proposal,
+  Governance,
+  Vote,
+} from "../generated/schema";
 // NOTE: copied with minor modifications from
 // https://github.com/protofire/compound-governance-subgraph/blob/master/src/mappings.ts
 
@@ -157,9 +165,21 @@ export function handleDelegateChanged(event: DelegateChanged): void {
   let previousDelegate = getOrCreateDelegate(
     event.params.fromDelegate.toHexString()
   );
+  let delegateChangeEvent = getOrCreateDelegateChangedEvent(
+    event.params.delegator.toHexString()
+  );
+
   let newDelegate = getOrCreateDelegate(event.params.toDelegate.toHexString());
 
+  newDelegate.save();
+
+  delegateChangeEvent.tokenHolder = tokenHolder.id;
+  delegateChangeEvent.delegate = newDelegate.id;
+  delegateChangeEvent.txHash = event.transaction.hash.toHex();
+  delegateChangeEvent.save();
+
   tokenHolder.delegate = newDelegate.id;
+  tokenHolder.delegateChangedEvents.push(delegateChangeEvent.id);
   tokenHolder.save();
 
   previousDelegate.tokenHoldersRepresentedAmount =
@@ -167,7 +187,6 @@ export function handleDelegateChanged(event: DelegateChanged): void {
   newDelegate.tokenHoldersRepresentedAmount =
     newDelegate.tokenHoldersRepresentedAmount + 1;
   previousDelegate.save();
-  newDelegate.save();
 }
 
 // - event: DelegateVotesChanged(indexed address,uint256,uint256)

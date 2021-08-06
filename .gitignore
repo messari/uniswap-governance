@@ -4,3 +4,6 @@ node_modules/
 src/types/
 .DS_STORE
 .idea/
+.env
+cache/
+db_data/

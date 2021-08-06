@@ -49,6 +49,7 @@ dataSources:
       language: wasm/assemblyscript
       entities:
         - Delegate
+        - DelegateChangedEvent
         - TokenHolder
       abis:
         - name: UniswapToken
